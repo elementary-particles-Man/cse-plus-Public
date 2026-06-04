@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Status: READY");
         }
         Commands::Status => {
-            println!("Public Standard CSE verifier");
+            println!("CSE+ verifier");
             println!("Status: RUNNING");
             println!("Line: CSE+");
             println!("Reference adapter: available");
