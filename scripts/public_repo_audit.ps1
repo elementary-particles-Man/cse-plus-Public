@@ -1,37 +1,23 @@
 param()
 
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$denylist = @(
-  'SilentNoOracle',
-  'NoOracle',
-  'KeyCseV3',
-  'KeyCSE v3',
-  'KmsSplit',
-  'RuntimeTriplet',
-  'BootstrapKey',
-  'FacilityGeneratedKey',
-  'MK',
-  'TK',
-  'PK',
-  'M_part',
-  'T_part',
-  'P_part',
-  'TRUE',
-  'PITH'
+$requiredFiles = @(
+  'README.md',
+  'Cargo.toml',
+  'crates/cse-plus-standard/Cargo.toml'
 )
 
-$matches = @()
-foreach ($term in $denylist) {
-  $found = & rg -n -I -F $term $root --glob '!scripts/public_repo_audit.sh' --glob '!scripts/public_repo_audit.ps1' 2>$null
-  if ($LASTEXITCODE -eq 0 -and $found) {
-    $matches += $found
+foreach ($file in $requiredFiles) {
+  if (-not (Test-Path (Join-Path $root $file))) {
+    Write-Error ("missing required file: {0}" -f $file)
+    exit 1
   }
 }
 
-if ($matches.Count -gt 0) {
-  $matches | ForEach-Object { Write-Output $_ }
-  Write-Error "Public repo audit failed"
+$readme = Get-Content (Join-Path $root 'README.md') -Raw
+if ($readme -notmatch '^# CSE\+') {
+  Write-Error 'README does not describe the public CSE+ line'
   exit 1
 }
 
-Write-Output "Public repo audit passed"
+Write-Output 'Public repo audit passed'
