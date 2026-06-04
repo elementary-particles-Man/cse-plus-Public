@@ -154,6 +154,7 @@ struct Topology {
 struct QuickHarnessRow {
     case_id: String,
     case_class: String,
+    harness_mode: String,
     source: String,
     destination: String,
     payload_size: usize,
@@ -179,6 +180,7 @@ struct QuickHarnessSummary {
     false_allow: u64,
     false_reject: u64,
     by_case_class: BTreeMap<String, SummaryBucket>,
+    by_harness_mode: BTreeMap<String, SummaryBucket>,
     by_pair: BTreeMap<String, SummaryBucket>,
     by_payload_size: BTreeMap<String, SummaryBucket>,
 }
@@ -220,7 +222,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Commands::PackageLocal { output_root } => {
-            build_local_package(&workspace_root()?, output_root)?;
+            let repo_root = workspace_root()?;
+            build_local_package(&repo_root, output_root)?;
         }
         Commands::InstallLocal {
             institution_type,
@@ -228,8 +231,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             demo_seed_i32,
             output_root,
         } => {
+            let repo_root = workspace_root()?;
             install_local(
-                &workspace_root()?,
+                &repo_root,
                 output_root,
                 institution_type,
                 branch_code,
@@ -240,10 +244,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             institution_branch_id,
             output_root,
         } => {
-            uninstall_local(output_root, institution_branch_id)?;
+            let repo_root = workspace_root()?;
+            uninstall_local(&repo_root, output_root, institution_branch_id)?;
         }
         Commands::PrepareThreeBankLocal { output_root } => {
-            prepare_three_bank_local(output_root)?;
+            let repo_root = workspace_root()?;
+            prepare_three_bank_local(&repo_root, output_root)?;
         }
         Commands::RunThreeBankQuickHarness {
             iterations,
@@ -251,8 +257,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             output_root,
         } => {
             let mut rng = StdRng::from_entropy();
+            let repo_root = workspace_root()?;
             run_three_bank_quick_harness(
-                &workspace_root()?,
+                &repo_root,
                 topology_root,
                 output_root,
                 *iterations,
@@ -429,19 +436,40 @@ fn copy_optional_file(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn resolve_binary_path(workspace_root: &Path) -> Option<PathBuf> {
-    let candidates = [
+fn resolve_binary_path_from(workspace_root: &Path, target_dir: Option<&Path>) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(target_dir) = target_dir {
+        let target_dir = if target_dir.is_absolute() {
+            target_dir.to_path_buf()
+        } else {
+            workspace_root.join(target_dir)
+        };
+        candidates.extend([
+            target_dir.join("release/cse_txn"),
+            target_dir.join("debug/cse_txn"),
+            target_dir.join("release/cse_txn.exe"),
+            target_dir.join("debug/cse_txn.exe"),
+        ]);
+    }
+
+    candidates.extend([
         workspace_root.join("target/release/cse_txn"),
         workspace_root.join("target/debug/cse_txn"),
         workspace_root.join("target/release/cse_txn.exe"),
         workspace_root.join("target/debug/cse_txn.exe"),
-    ];
+    ]);
 
     candidates.into_iter().find(|path| path.exists())
 }
 
+fn resolve_binary_path(workspace_root: &Path) -> Option<PathBuf> {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
+    resolve_binary_path_from(workspace_root, target_dir.as_deref())
+}
+
 fn build_local_package(workspace_root: &Path, output_root: &Path) -> Result<(), Box<dyn Error>> {
-    if !ensure_release_audit_path(output_root, "packages") {
+    if !ensure_release_audit_path(workspace_root, output_root, "packages") {
         return Err("package output must stay under target/release-audit/packages".into());
     }
     fs::create_dir_all(output_root)?;
@@ -474,9 +502,9 @@ fn build_local_package(workspace_root: &Path, output_root: &Path) -> Result<(), 
         &stage_root.join("scripts/uninstall_cse_plus_local.ps1"),
     )?;
 
-    if let Some(binary) = resolve_binary_path(workspace_root) {
-        copy_file(&binary, &stage_root.join("bin/cse_txn"))?;
-    }
+    let binary = resolve_binary_path(workspace_root)
+        .ok_or_else(|| "cse_txn binary not found after build".to_string())?;
+    copy_file(&binary, &stage_root.join("bin/cse_txn"))?;
 
     let sha_manifest = build_sha_manifest(
         &stage_root,
@@ -546,7 +574,26 @@ fn install_local(
     branch_code: &str,
     demo_seed_i32: i32,
 ) -> Result<(), Box<dyn Error>> {
-    if !ensure_release_audit_path(output_root, "installations") {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
+    install_local_with_target_dir(
+        workspace_root,
+        output_root,
+        institution_type,
+        branch_code,
+        demo_seed_i32,
+        target_dir.as_deref(),
+    )
+}
+
+fn install_local_with_target_dir(
+    workspace_root: &Path,
+    output_root: &Path,
+    institution_type: &str,
+    branch_code: &str,
+    demo_seed_i32: i32,
+    target_dir: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
+    if !ensure_release_audit_path(workspace_root, output_root, "installations") {
         return Err("install output must stay under target/release-audit/installations".into());
     }
     validate_institution_type(institution_type)?;
@@ -594,27 +641,46 @@ fn install_local(
         "Results are written here for local verification runs.\n",
     )?;
 
-    if let Some(binary) = resolve_binary_path(workspace_root) {
-        copy_file(&binary, &install_root.join("bin/cse_txn"))?;
-    } else {
-        write_text_file(
-            &install_root.join("bin/cse_txn"),
-            "cse_txn binary not found; build the workspace first.\n",
-        )?;
-    }
+    let binary = resolve_binary_path_from(workspace_root, target_dir)
+        .ok_or_else(|| "cse_txn binary not found after build".to_string())?;
+    copy_file(&binary, &install_root.join("bin/cse_txn"))?;
 
     Ok(())
 }
 
-fn uninstall_local(output_root: &Path, institution_branch_id: &str) -> Result<(), Box<dyn Error>> {
-    if !ensure_release_audit_path(output_root, "installations") {
+fn validate_institution_branch_id(value: &str) -> Result<(), String> {
+    if value.len() == 8
+        && value.is_ascii()
+        && value.as_bytes().get(4) == Some(&b'-')
+        && value
+            .as_bytes()
+            .iter()
+            .take(4)
+            .all(|byte| byte.is_ascii_alphanumeric())
+        && value
+            .as_bytes()
+            .iter()
+            .skip(5)
+            .take(3)
+            .all(|byte| byte.is_ascii_digit())
+    {
+        Ok(())
+    } else {
+        Err("institution_branch_id must match XXXX-NNN ASCII form".to_string())
+    }
+}
+
+fn uninstall_local(
+    workspace_root: &Path,
+    output_root: &Path,
+    institution_branch_id: &str,
+) -> Result<(), Box<dyn Error>> {
+    if !ensure_release_audit_path(workspace_root, output_root, "installations") {
         return Err(
             "uninstall output root must stay under target/release-audit/installations".into(),
         );
     }
-    if institution_branch_id.trim().is_empty() {
-        return Err("institution_branch_id is required".into());
-    }
+    validate_institution_branch_id(institution_branch_id).map_err(|e| e.to_string())?;
     let install_root = output_root.join(institution_branch_id);
     if !install_root.exists() {
         return Ok(());
@@ -623,8 +689,11 @@ fn uninstall_local(output_root: &Path, institution_branch_id: &str) -> Result<()
     Ok(())
 }
 
-fn prepare_three_bank_local(output_root: &Path) -> Result<(), Box<dyn Error>> {
-    if !ensure_release_audit_path(output_root, "three-bank-local") {
+fn prepare_three_bank_local(
+    workspace_root: &Path,
+    output_root: &Path,
+) -> Result<(), Box<dyn Error>> {
+    if !ensure_release_audit_path(workspace_root, output_root, "three-bank-local") {
         return Err(
             "three-bank topology must stay under target/release-audit/three-bank-local".into(),
         );
@@ -699,10 +768,10 @@ fn run_three_bank_quick_harness(
     iterations: u32,
     rng: &mut impl RngCore,
 ) -> Result<QuickHarnessSummary, Box<dyn Error>> {
-    if !ensure_release_audit_path(topology_root, "three-bank-local") {
+    if !ensure_release_audit_path(workspace_root, topology_root, "three-bank-local") {
         return Err("topology must stay under target/release-audit/three-bank-local".into());
     }
-    if !ensure_release_audit_path(output_root, "test-results") {
+    if !ensure_release_audit_path(workspace_root, output_root, "test-results") {
         return Err("results must stay under target/release-audit/test-results".into());
     }
     let topology = load_topology(topology_root)?;
@@ -731,40 +800,58 @@ fn run_three_bank_quick_harness(
 
                 let start = std::time::Instant::now();
                 let output = cse_pre_send(demo_context(), &payload, None, &engine)?;
-                let packet_result = cse_pre_recv(&output.packet, &engine);
+                let harness_mode = match case_class {
+                    "cross_bank_mismatch" => "simulation",
+                    _ => "actual_verification",
+                };
 
                 let (expected_result, actual_result, activation_allowed, rejection_reason) =
                     match case_class {
                         "normal" => {
-                            if packet_result.is_ok() {
-                                (
+                            let packet_result = cse_pre_recv(&output.packet, &engine);
+                            match packet_result {
+                                Ok(_) => (
                                     "verified".to_string(),
                                     "verified".to_string(),
                                     true,
                                     String::new(),
-                                )
-                            } else {
-                                (
+                                ),
+                                Err(err) => (
                                     "verified".to_string(),
                                     "rejected".to_string(),
-                                    true,
-                                    packet_result
-                                        .err()
-                                        .unwrap_or_else(|| "verification failed".to_string()),
-                                )
+                                    false,
+                                    err,
+                                ),
                             }
                         }
-                        "abnormal" => (
-                            "not_activated".to_string(),
-                            "not_activated".to_string(),
-                            false,
-                            "packet mutation rejected or not activated".to_string(),
-                        ),
+                        "abnormal" => {
+                            let mutated_packet = mutate_packet(
+                                &output.packet,
+                                iter,
+                                pair,
+                                payload_size,
+                                case_class,
+                            );
+                            match cse_pre_recv(&mutated_packet, &engine) {
+                                Ok(_) => (
+                                    "not_activated".to_string(),
+                                    "verified".to_string(),
+                                    true,
+                                    "unexpected verification success".to_string(),
+                                ),
+                                Err(err) => (
+                                    "not_activated".to_string(),
+                                    "not_activated".to_string(),
+                                    false,
+                                    err,
+                                ),
+                            }
+                        }
                         "cross_bank_mismatch" => (
                             "not_activated".to_string(),
                             "not_activated".to_string(),
                             false,
-                            "route mismatch not activated".to_string(),
+                            "public quick harness simulation: public standard line lacks bank-profile binding".to_string(),
                         ),
                         _ => unreachable!(),
                     };
@@ -773,6 +860,7 @@ fn run_three_bank_quick_harness(
                 let row = QuickHarnessRow {
                     case_id: case_id.clone(),
                     case_class: case_class.to_string(),
+                    harness_mode: harness_mode.to_string(),
                     source: pair.source.clone(),
                     destination: pair.destination.clone(),
                     payload_size,
@@ -797,6 +885,7 @@ fn run_three_bank_quick_harness(
                     summary.false_reject += 1;
                 }
                 bucket_add(&mut summary.by_case_class, case_class, &row);
+                bucket_add(&mut summary.by_harness_mode, harness_mode, &row);
                 bucket_add(
                     &mut summary.by_pair,
                     &format!("{}->{}", pair.source, pair.destination),
@@ -826,6 +915,42 @@ fn run_three_bank_quick_harness(
     Ok(summary)
 }
 
+fn mutate_packet(
+    packet: &[u8],
+    iter: u32,
+    pair: &BankPair,
+    payload_size: usize,
+    case_class: &str,
+) -> Vec<u8> {
+    let mut mutated = packet.to_vec();
+    let mutation_kind =
+        (iter as usize + pair.source.len() + pair.destination.len() + payload_size) % 4;
+    let seal_offset = 32 + 112 + 256 + 128;
+    match mutation_kind {
+        0 => {
+            if let Some(byte) = mutated.get_mut(0) {
+                *byte ^= 0x01;
+            }
+        }
+        1 => {
+            if let Some(byte) = mutated.get_mut(seal_offset) {
+                *byte ^= 0x01;
+            }
+        }
+        2 => {
+            let trim = 1 + (case_class.len() + iter as usize) % 8;
+            mutated.truncate(mutated.len().saturating_sub(trim));
+        }
+        _ => {
+            mutated.extend_from_slice(b"PUBLIC-CSEPLUS-GARBAGE");
+            if let Some(byte) = mutated.get_mut(seal_offset + 32) {
+                *byte ^= 0x01;
+            }
+        }
+    }
+    mutated
+}
+
 fn bucket_add(map: &mut BTreeMap<String, SummaryBucket>, key: &str, row: &QuickHarnessRow) {
     let entry = map.entry(key.to_string()).or_default();
     if row.expected_result == row.actual_result {
@@ -841,18 +966,38 @@ fn load_topology(topology_root: &Path) -> Result<Topology, Box<dyn Error>> {
     Ok(serde_json::from_str(&content)?)
 }
 
-fn ensure_release_audit_path(path: &Path, tail: &str) -> bool {
-    let expected = ["target", "release-audit", tail];
-    path.components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .windows(expected.len())
-        .any(|window| {
-            window
-                .iter()
-                .map(String::as_str)
-                .eq(expected.iter().copied())
-        })
+fn ensure_release_audit_path(repo_root: &Path, path: &Path, tail: &str) -> bool {
+    let repo_root = match fs::canonicalize(repo_root) {
+        Ok(root) => root,
+        Err(_) => repo_root.to_path_buf(),
+    };
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        repo_root.join(path)
+    };
+
+    if candidate.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    }) {
+        return false;
+    }
+
+    if !candidate.starts_with(&repo_root) {
+        return false;
+    }
+
+    let relative = match candidate.strip_prefix(&repo_root) {
+        Ok(relative) => relative,
+        Err(_) => return false,
+    };
+    let mut components = relative.components();
+    matches!(components.next(), Some(std::path::Component::Normal(value)) if value == "target")
+        && matches!(components.next(), Some(std::path::Component::Normal(value)) if value == "release-audit")
+        && matches!(components.next(), Some(std::path::Component::Normal(value)) if value == tail)
 }
 
 #[cfg(test)]
@@ -863,6 +1008,7 @@ fn package_path_exists(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -896,11 +1042,19 @@ mod tests {
         root
     }
 
+    fn fake_target_dir(root: &Path) -> PathBuf {
+        let target_dir = root.join("tmp-target");
+        fs::create_dir_all(target_dir.join("release")).unwrap();
+        fs::create_dir_all(target_dir.join("debug")).unwrap();
+        fs::write(target_dir.join("release/cse_txn"), b"target-release-binary").unwrap();
+        fs::write(target_dir.join("debug/cse_txn"), b"target-debug-binary").unwrap();
+        target_dir
+    }
+
     #[test]
     fn p18a_package() {
         let workspace = fake_workspace();
-        let output_root =
-            unique_temp_dir("cse-plus-public-packages").join("target/release-audit/packages");
+        let output_root = workspace.join("target/release-audit/packages");
         fs::create_dir_all(&output_root).unwrap();
 
         build_local_package(&workspace, &output_root).unwrap();
@@ -909,22 +1063,55 @@ mod tests {
         assert!(package_path_exists(
             &output_root.join(PACKAGE_WINDOWS_DRY_RUN)
         ));
+        let package_file = File::open(output_root.join(PACKAGE_NAME)).unwrap();
+        let decoder = flate2::read::GzDecoder::new(package_file);
+        let mut archive = tar::Archive::new(decoder);
+        let mut entries = HashSet::new();
+        for entry in archive.entries().unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path().unwrap().to_string_lossy().to_string();
+            entries.insert(path);
+        }
+        assert!(entries.iter().any(|path| path.ends_with("bin/cse_txn")));
         let manifest =
             fs::read_to_string(output_root.join(PACKAGE_STAGE_DIR).join("SHA256SUMS")).unwrap();
         assert!(manifest.contains("README.md"));
+
+        let target_dir = fake_target_dir(&workspace);
+        let resolved = resolve_binary_path_from(&workspace, Some(&target_dir));
+        assert_eq!(resolved, Some(target_dir.join("release/cse_txn")));
+    }
+
+    #[test]
+    fn p18a_release_audit_path_checks() {
+        let repo_root = unique_temp_dir("cse-plus-public-repo-root");
+        let valid = repo_root.join("target/release-audit/packages");
+        let root_only = repo_root.join("target/release-audit");
+        let traversal = repo_root.join("target/release-audit/../escape");
+        let external =
+            unique_temp_dir("cse-plus-public-external").join("target/release-audit/packages");
+
+        assert!(ensure_release_audit_path(&repo_root, &valid, "packages"));
+        assert!(!ensure_release_audit_path(
+            &repo_root, &root_only, "packages"
+        ));
+        assert!(!ensure_release_audit_path(
+            &repo_root, &traversal, "packages"
+        ));
+        assert!(!ensure_release_audit_path(
+            &repo_root, &external, "packages"
+        ));
     }
 
     #[test]
     fn p18a_three_bank() {
         let workspace = fake_workspace();
-        let topology_root = unique_temp_dir("cse-plus-public-topology")
-            .join("target/release-audit/three-bank-local");
-        let output_root =
-            unique_temp_dir("cse-plus-public-results").join("target/release-audit/test-results");
+        let topology_root = workspace.join("target/release-audit/three-bank-local");
+        let output_root = workspace.join("target/release-audit/test-results");
         fs::create_dir_all(&topology_root).unwrap();
         fs::create_dir_all(&output_root).unwrap();
 
-        prepare_three_bank_local(&topology_root).unwrap();
+        prepare_three_bank_local(&workspace, &topology_root).unwrap();
         let mut rng = StdRng::seed_from_u64(42);
         let summary =
             run_three_bank_quick_harness(&workspace, &topology_root, &output_root, 2, &mut rng)
@@ -933,9 +1120,74 @@ mod tests {
         assert!(output_root.join(QUICK_HARNESS_RESULTS).exists());
         assert!(output_root.join(QUICK_HARNESS_SUMMARY).exists());
         assert_eq!(summary.false_allow, 0);
+        assert_eq!(summary.false_reject, 0);
+        assert!(summary.by_harness_mode.contains_key("actual_verification"));
+        assert!(summary.by_harness_mode.contains_key("simulation"));
+        assert!(
+            summary
+                .by_harness_mode
+                .get("simulation")
+                .map(|bucket| bucket.passed)
+                .unwrap_or(0)
+                > 0
+        );
         let results = fs::read_to_string(output_root.join(QUICK_HARNESS_RESULTS)).unwrap();
+        assert!(results.contains("\"harness_mode\""));
         assert!(!results.contains("raw_payload"));
         assert!(!results.contains("candidate"));
         assert!(!results.contains("key_material"));
+        assert!(results.contains("public quick harness simulation"));
+    }
+
+    #[test]
+    fn p18a_install_requires_real_binary() {
+        let workspace = unique_temp_dir("cse-plus-public-empty-workspace");
+        fs::write(workspace.join("README.md"), b"# CSE+\n").unwrap();
+        let output_root = workspace.join("target/release-audit/installations");
+        fs::create_dir_all(&output_root).unwrap();
+
+        let empty_target_dir = workspace.join("empty-target");
+        fs::create_dir_all(&empty_target_dir).unwrap();
+        let err = install_local_with_target_dir(
+            &workspace,
+            &output_root,
+            "A001",
+            "001",
+            1001,
+            Some(&empty_target_dir),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("cse_txn binary not found"));
+    }
+
+    #[test]
+    fn p18a_install_copies_real_binary() {
+        let workspace = fake_workspace();
+        let output_root = workspace.join("target/release-audit/installations");
+        fs::create_dir_all(&output_root).unwrap();
+
+        let target_dir = fake_target_dir(&workspace);
+        install_local_with_target_dir(
+            &workspace,
+            &output_root,
+            "A001",
+            "001",
+            1001,
+            Some(&target_dir),
+        )
+        .unwrap();
+        let installed = fs::read(output_root.join("A001-001/bin/cse_txn")).unwrap();
+        assert_eq!(installed, b"target-release-binary");
+    }
+
+    #[test]
+    fn p18a_uninstall_rejects_unsafe_branch_ids() {
+        let repo_root = unique_temp_dir("cse-plus-public-repo-root");
+        let output_root = repo_root.join("target/release-audit/installations");
+        fs::create_dir_all(&output_root).unwrap();
+
+        assert!(uninstall_local(&repo_root, &output_root, "A001-001").is_ok());
+        assert!(uninstall_local(&repo_root, &output_root, "A001/001").is_err());
+        assert!(uninstall_local(&repo_root, &output_root, "A001-00").is_err());
     }
 }

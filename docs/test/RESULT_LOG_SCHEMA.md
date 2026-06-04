@@ -6,6 +6,7 @@ The three-bank quick harness writes JSONL rows to
 Each row contains:
 - `case_id`
 - `case_class`
+- `harness_mode`
 - `source`
 - `destination`
 - `payload_size`
@@ -17,4 +18,4 @@ Each row contains:
 - `elapsed_ms`
 
 The summary JSON contains total counts, pass/fail counts, and breakdowns by case
-class, bank pair, and payload size.
+class, harness mode, bank pair, and payload size.

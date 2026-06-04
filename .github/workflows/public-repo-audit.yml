@@ -17,3 +17,5 @@ jobs:
       - run: bash scripts/install_cse_plus_local.sh --institution-type A001 --branch-code 001 --demo-seed-i32 1001
       - run: bash scripts/prepare_three_bank_local.sh
       - run: bash scripts/run_three_bank_quick_harness.sh --iterations 10
+      - run: cargo test -p tuff-cse-cli p18a_package -- --nocapture
+      - run: cargo test -p tuff-cse-cli p18a_three_bank -- --nocapture
