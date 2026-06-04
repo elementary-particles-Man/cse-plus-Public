@@ -11,7 +11,7 @@ use tuff_cse_txn::{CseFailMode, CseProfileId, CseTxContext};
 
 #[derive(Parser)]
 #[command(name = "cse_txn")]
-#[command(about = "Public standard CSE verifier CLI", long_about = None)]
+#[command(about = "Public CSE+ verifier CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &cli.command {
         Commands::Init { config } => {
-            println!("Initializing public standard line...");
+            println!("Initializing public CSE+ line...");
             println!(
                 "Config: {:?}",
                 config.as_ref().unwrap_or(&PathBuf::from("default.conf"))
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Status => {
             println!("Public Standard CSE verifier");
             println!("Status: RUNNING");
-            println!("Line: cse-plus-standard");
+            println!("Line: CSE+");
             println!("Reference adapter: available");
         }
         Commands::Selftest => run_selftest()?,
@@ -121,7 +121,7 @@ fn demo_context() -> CseTxContext {
 }
 
 fn run_selftest() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Running public standard self-test...");
+    println!("Running public CSE+ self-test...");
 
     let engine = demo_engine();
     let ctx = demo_context();

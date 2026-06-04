@@ -1,13 +1,13 @@
-# cse-plus-standard
+# CSE+
 
-This repository is the public standard line for the CSE+ workspace.
+This repository is the public CSE+ envelope, verifier, and tooling line.
 
-It contains the public wire, digest, and verifier surface needed for tests and
-reference integrations. Private regulated implementation details are excluded.
+It contains the public wire, digest, and verification surface needed for tests
+and reference integrations.
 
 ## Project Structure
 
-- `crates/cse-plus-standard`: Public standard-line metadata and helpers.
+- `crates/cse-plus-standard`: Public CSE+ metadata and helpers.
 - `crates/tuff-cse-core`: Core digests, bundles, and profile helpers.
 - `crates/tuff-cse-txn`: Wire packet v0, encode/decode, and verification API.
 - `crates/tuff-cse-cli`: Command line interface.
@@ -33,7 +33,3 @@ The following components are intended for public verification and common impleme
 - Digest and seal interfaces.
 - CLI verifier and KAT (Known Answer Tests).
 - Reference adapters.
-
-The following components are sensitive and should be managed privately by each institution:
-- Institution-local operational policy sources.
-- Production adapters and runbooks.
