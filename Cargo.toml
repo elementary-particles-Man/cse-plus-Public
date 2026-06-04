@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/tuff-cse-core",
+    "crates/tuff-cse-txn",
+    "crates/tuff-cse-cli",
+    "crates/tuff-cse-adapter-http",
+    "crates/cse-plus-standard",
+]
+resolver = "2"

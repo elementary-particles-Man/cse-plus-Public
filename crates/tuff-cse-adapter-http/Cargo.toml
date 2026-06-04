@@ -1,0 +1,10 @@
+[package]
+name = "tuff-cse-adapter-http"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tuff-cse-core = { path = "../tuff-cse-core" }
+tuff-cse-txn = { path = "../tuff-cse-txn" }
+

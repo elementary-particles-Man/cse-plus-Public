@@ -1,0 +1,22 @@
+[package]
+name = "tuff-cse-txn"
+version = "0.6.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["std", "sha256"]
+std = []
+sha256 = []
+keycse-v3 = []
+high-assurance = []
+windows-service = []
+cli = []
+ffi = []
+
+[dependencies]
+tuff-cse-core = { path = "../tuff-cse-core" }
+static_assertions = "1.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4"

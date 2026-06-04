@@ -1,0 +1,15 @@
+name: public-repo-audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/public_repo_audit.sh
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --all-features

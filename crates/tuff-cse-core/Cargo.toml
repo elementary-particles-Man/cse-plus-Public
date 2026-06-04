@@ -1,0 +1,10 @@
+[package]
+name = "tuff-cse-core"
+version = "0.6.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+zeroize = { version = "1.8", features = ["derive"] }
+subtle = "2.6"
+sha2 = "0.10"
