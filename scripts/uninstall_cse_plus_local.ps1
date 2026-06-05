@@ -1,0 +1,12 @@
+param(
+  [Parameter(Mandatory = $true)][string]$institution_branch_id
+)
+
+$repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+Set-Location $repoRoot
+
+if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = "/tmp/cse-plus-public-target" }
+New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR | Out-Null
+cargo run --quiet -p tuff-cse-cli -- uninstall-local `
+  --institution-branch-id $institution_branch_id `
+  --output-root target/release-audit/installations

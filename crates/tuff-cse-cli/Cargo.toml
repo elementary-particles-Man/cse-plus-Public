@@ -12,6 +12,10 @@ path = "src/main.rs"
 tuff-cse-core = { path = "../tuff-cse-core" }
 tuff-cse-txn = { path = "../tuff-cse-txn" }
 clap = { version = "4.5", features = ["derive"] }
+chrono = { version = "0.4", features = ["clock"] }
+flate2 = "1.0"
+rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hex = "0.4"
+tar = "0.4"
